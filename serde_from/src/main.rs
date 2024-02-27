@@ -6,7 +6,6 @@ fn main() {
     let my_req = serde_json::json!({
         "a": "a",
         "b": "b",
-        "c": "c"
     });
 
     let de: MyRequest = serde_json::from_value(my_req).unwrap();
@@ -21,7 +20,6 @@ pub trait Request {
 pub struct MyRequest {
     pub a: String,
     pub b: String,
-    pub c: String,
 }
 
 impl Request for MyRequest {
