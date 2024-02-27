@@ -18,8 +18,8 @@ pub trait Request {
 
 #[derive(Deserialize, Debug)]
 pub struct MyRequest {
-    a: String,
-    b: String,
+    pub a: String,
+    pub b: String,
 }
 
 impl Request for MyRequest {
