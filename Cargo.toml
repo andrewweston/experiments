@@ -1,0 +1,6 @@
+[workspace]
+members = ["deserialize", "rc", "serde_from"]
+resolver = "2"
+
+[workspace.package]
+authors = ["Vercre"]
