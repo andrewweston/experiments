@@ -7,7 +7,9 @@ use iroh::bytes::store::flat;
 // use iroh::bytes::store::mem;
 // use iroh::net::key::SecretKey;
 use iroh::node;
-use iroh::rpc_protocol::{BlobDownloadRequest, DocTicket, DownloadLocation, SetTagOption};
+use iroh::rpc_protocol::{
+    BlobDownloadRequest, DocTicket, DownloadLocation, SetTagOption, ShareMode,
+};
 use iroh::sync::store::{fs, Query}; // memory,
 use iroh::ticket::BlobTicket;
 use iroh::util::path::IrohPaths;
@@ -17,7 +19,7 @@ use iroh::util::path::IrohPaths;
 #[derive(Debug)]
 pub struct Node {
     // inner: iroh::node::Node<mem::Store>,
-    inner: iroh::node::Node<flat::Store>,
+    node: iroh::node::Node<flat::Store>,
 }
 
 pub async fn start() -> Result<Node> {
@@ -31,31 +33,34 @@ pub async fn start() -> Result<Node> {
     // let blob_store = mem::Store::new();
     // let doc_store = memory::Store::default();
 
-    let inner = node::Node::builder(blob_store, doc_store).spawn().await?;
+    let node = node::Node::builder(blob_store, doc_store).spawn().await?;
 
-    Ok(Node { inner })
+    Ok(Node { node })
 }
 
 impl Node {
     pub async fn join_doc(&self, tkt_str: &str) -> Result<()> {
-        let client = self.inner.client();
+        let iroh = self.node.client();
 
         let ticket = DocTicket::from_str(tkt_str)?;
 
-        let doc = client.docs.import(ticket.clone()).await?;
-        // let doc = match client.docs.open(ticket.capability.id()).await {
-        //     Ok(Some(doc)) => doc,
-        //     Err(_) => client.docs.import(ticket.clone()).await?,
-        //     _ => anyhow::bail!("Error opening doc"),
-        // };
+        // let doc = iroh.docs.import(ticket.clone()).await?;
+        // tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
+        let doc = match iroh.docs.open(ticket.capability.id()).await {
+            Ok(Some(doc)) => doc,
+            Err(_) => iroh.docs.import(ticket.clone()).await?,
+            _ => anyhow::bail!("Error opening doc"),
+        };
+
+        
         let mut entries = doc.get_many(Query::single_latest_per_key()).await?;
 
         while let Some(entry) = entries.try_next().await? {
             let id = String::from_utf8(entry.key().to_owned())?;
             println!("Got todo: {}", id);
 
-            // let Ok(entry) = client.blobs.read_to_bytes(entry.content_hash()).await else {
+            // let Ok(entry) = iroh.blobs.read_to_bytes(entry.content_hash()).await else {
             //     anyhow::bail!("Error getting entry");
             // };
             // println!("Got entry: {:?}", entry);
@@ -65,7 +70,7 @@ impl Node {
     }
 
     pub async fn _download_blob(&self, ticket: &str) -> Result<()> {
-        let client = self.inner.client();
+        let iroh = self.inner.client();
 
         let ticket = BlobTicket::from_str(ticket)?;
         let req = BlobDownloadRequest {
@@ -76,7 +81,7 @@ impl Node {
             out: DownloadLocation::Internal,
         };
 
-        let stream = client.blobs.download(req).await?;
+        let stream = iroh.blobs.download(req).await?;
         let _ = stream
             .for_each(|item| {
                 println!("Got item: {:?}", item);
