@@ -1,5 +1,5 @@
 [workspace]
-members = ["deserialize", "rc", "serde_from"]
+members = ["deserialize", "rc", "serde_from","iroh"]
 resolver = "2"
 
 [workspace.package]
