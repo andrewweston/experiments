@@ -47,11 +47,9 @@ mod error {
             let (status, error_message) = match self {
                 Error::Other(_) => (StatusCode::INTERNAL_SERVER_ERROR, "".to_string()),
             };
-
             let body = Json(json!({
                 "error": error_message,
             }));
-
             (status, body).into_response()
         }
     }

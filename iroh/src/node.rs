@@ -4,13 +4,13 @@ use std::str::FromStr;
 use anyhow::Result;
 use futures::{future, StreamExt, TryStreamExt};
 use iroh::bytes::store::flat;
+use iroh::client::LiveEvent;
 // use iroh::bytes::store::mem;
 // use iroh::net::key::SecretKey;
 use iroh::node;
-use iroh::rpc_protocol::{
-    BlobDownloadRequest, DocTicket, DownloadLocation, SetTagOption, ShareMode,
-};
+use iroh::rpc_protocol::{BlobDownloadRequest, DocTicket, DownloadLocation, SetTagOption};
 use iroh::sync::store::{fs, Query}; // memory,
+use iroh::sync::ContentStatus;
 use iroh::ticket::BlobTicket;
 use iroh::util::path::IrohPaths;
 
@@ -18,8 +18,8 @@ use iroh::util::path::IrohPaths;
 
 #[derive(Debug)]
 pub struct Node {
-    // inner: iroh::node::Node<mem::Store>,
     node: iroh::node::Node<flat::Store>,
+    // node: iroh::node::Node<mem::Store>,
 }
 
 pub async fn start() -> Result<Node> {
@@ -29,7 +29,6 @@ pub async fn start() -> Result<Node> {
 
     let blob_store = flat::Store::load(&flat_dir).await?;
     let doc_store = fs::Store::new(docs_dir)?;
-
     // let blob_store = mem::Store::new();
     // let doc_store = memory::Store::default();
 
@@ -44,16 +43,14 @@ impl Node {
 
         let ticket = DocTicket::from_str(tkt_str)?;
 
-        // let doc = iroh.docs.import(ticket.clone()).await?;
-        // tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-
-        let doc = match iroh.docs.open(ticket.capability.id()).await {
-            Ok(Some(doc)) => doc,
-            Err(_) => iroh.docs.import(ticket.clone()).await?,
-            _ => anyhow::bail!("Error opening doc"),
+        let Ok(doc) = iroh.docs.open(ticket.capability.id()).await else {
+            return self.import_doc(ticket).await;
         };
 
-        
+        let Some(doc) = doc else {
+            anyhow::bail!("Error opening doc");
+        };
+
         let mut entries = doc.get_many(Query::single_latest_per_key()).await?;
 
         while let Some(entry) = entries.try_next().await? {
@@ -69,8 +66,39 @@ impl Node {
         Ok(())
     }
 
+    async fn import_doc(&self, ticket: DocTicket) -> Result<()> {
+        let iroh = self.node.client();
+
+        let doc = iroh.docs.import(ticket).await?;
+
+        let mut events = doc.subscribe().await?;
+        let _ = tokio::spawn(async move {
+            while let Some(Ok(event)) = events.next().await {
+                match event {
+                    LiveEvent::InsertRemote { content_status, .. } => {
+                        // only update if we already have the content
+                        if content_status == ContentStatus::Complete {
+                            println!("insert remote");
+                        }
+                    }
+                    LiveEvent::InsertLocal { .. } => {
+                        println!("insert local");
+                    }
+                    LiveEvent::ContentReady { hash } => {
+                        println!("content ready");
+                        let bytes = iroh.blobs.read_to_bytes(hash).await.expect("should get bytes");
+                        println!("Got bytes: {:?}", bytes.len());
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        Ok(())
+    }
+
     pub async fn _download_blob(&self, ticket: &str) -> Result<()> {
-        let iroh = self.inner.client();
+        let iroh = self.node.client();
 
         let ticket = BlobTicket::from_str(ticket)?;
         let req = BlobDownloadRequest {
